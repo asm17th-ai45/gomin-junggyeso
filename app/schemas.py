@@ -5,14 +5,30 @@ from typing_extensions import TypedDict
 from pydantic import BaseModel, Field
 from langchain_core.messages import BaseMessage
 
+class DebateTurn(BaseModel):
+    round: int
+    agent: Literal["realist", "idealist", "risk_averse", "moderator"]
+    stance: str
+    content: str
+    target: str | None = None
+
+class FinalDecision(BaseModel):
+    recommendation: str
+    reasons: list[str]
+    risks: list[str]
+    next_action: str | None = None
+
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], operator.add]
     query: str
-    query_analysis: dict
-    search_results: list[dict]
-    final_answer: str
-    domain: str
-    iteration_count: int
+    normalized_problem: dict
+    debate_log: list[dict]
+    round: int
+    max_rounds: int
+    final_decision: dict
+    safety_status: str
+    needs_clarification: bool
+    clarification_questions: list[str]
 
 class QueryAnalysis(BaseModel):
     keywords: list[str] = Field(description="keywords")
