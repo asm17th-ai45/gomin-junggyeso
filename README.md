@@ -68,6 +68,9 @@
    START
      │
      ▼
+[Safety Check]
+     │
+     ▼
 [Moderator]
      │
      ▼
@@ -110,7 +113,8 @@
 │   ├── agents/              # Agent 노드 함수
 │   │   ├── debaters.py       # 현실주의자/이상주의자/리스크 회피형 Agent
 │   │   ├── moderator.py      # 토론 주제 정리 및 라운드 관리
-│   │   └── judge.py          # 최종 결론 생성
+│   │   ├── judge.py          # 최종 결론 생성
+│   │   └── safety.py         # 민감 주제 및 가드레일 처리
 │   ├── core/                # LLM, 설정, 공통 인프라
 │   ├── prompts/             # System prompt / prompt template
 │   ├── api.py               # FastAPI 라우터
@@ -245,7 +249,82 @@ curl -X POST "http://localhost:8001/api/v1/chat/sync" \
 | `docs/...` | 문서 수정 | `docs/update-readme` |
 | `refactor/...` | 구조 개선 | `refactor/agent-state-schema` |
 
-### 11-3. 커밋 규칙
+### 11-3. Issue 및 Label 규칙
+
+모든 작업은 GitHub Issue 단위로 관리하고, Issue에는 아래 label을 각각 1개 이상 부여합니다.
+
+역할 label:
+
+- `role:pm`
+- `role:agent-lead`
+- `role:agent-sub`
+- `role:backend`
+- `role:frontend`
+
+작업 유형 label:
+
+- `type:docs`
+- `type:feat`
+- `type:fix`
+- `type:chore`
+
+영역 label:
+
+- `area:agent`
+- `area:prompt`
+- `area:graph`
+- `area:api`
+- `area:frontend`
+- `area:infra`
+- `area:docs`
+
+우선순위 label:
+
+- `priority:p0`: MVP 동작을 막는 핵심 필수 작업
+- `priority:p1`: MVP 데모 품질과 안정성에 필요한 주요 작업
+- `priority:p2`: 구현 후 정리/문서화/후속 보강 작업
+
+Label은 브라우저에서 수동으로 만들지 않고, 아래 스크립트로 동기화합니다.
+
+```bash
+bash scripts/setup-labels.sh
+```
+
+권장 Issue 목록은 아래와 같습니다.
+
+| 담당 | Issue | Labels |
+|---|---|---|
+| PM | `docs: README와 AGENTS.md 초기 세팅` | `role:pm`, `type:docs`, `area:docs`, `priority:p0` |
+| PM | `docs(readme): 실행 방법과 데모 시나리오 최신화` | `role:pm`, `type:docs`, `area:docs`, `priority:p2` |
+| AI/Agent Lead | `feat(agent): AgentState 스키마 정의` | `role:agent-lead`, `type:feat`, `area:agent`, `priority:p0` |
+| AI/Agent Lead | `feat(prompt): Moderator/Judge system prompt 작성` | `role:agent-lead`, `type:feat`, `area:prompt`, `priority:p0` |
+| AI/Agent Lead | `feat(agent): Moderator 노드 함수 구현` | `role:agent-lead`, `type:feat`, `area:agent`, `priority:p0` |
+| AI/Agent Lead | `feat(agent): Judge 노드 함수 구현` | `role:agent-lead`, `type:feat`, `area:agent`, `priority:p0` |
+| AI/Agent Lead | `feat(graph): 2라운드 DebateGraph 구현` | `role:agent-lead`, `type:feat`, `area:graph`, `priority:p0` |
+| AI/Agent Sub | `feat(agent): Pydantic 출력 스키마 정의` | `role:agent-sub`, `type:feat`, `area:agent`, `priority:p0` |
+| AI/Agent Sub | `feat(prompt): Debater 3종 system prompt 작성` | `role:agent-sub`, `type:feat`, `area:prompt`, `priority:p0` |
+| AI/Agent Sub | `feat(agent): safety_check 가드레일 노드 구현` | `role:agent-sub`, `type:feat`, `area:agent`, `priority:p0` |
+| AI/Agent Sub | `feat(agent): Debater 3종 노드 함수 구현` | `role:agent-sub`, `type:feat`, `area:agent`, `priority:p0` |
+| Backend | `feat(api): Chat 요청/응답 스키마 정의` | `role:backend`, `type:feat`, `area:api`, `priority:p0` |
+| Backend | `feat(api): /health 엔드포인트 구현` | `role:backend`, `type:feat`, `area:api`, `priority:p1` |
+| Backend | `feat(api): /chat/sync 엔드포인트 구현` | `role:backend`, `type:feat`, `area:api`, `priority:p0` |
+| Backend | `feat(api): /chat SSE 스트리밍 구현` | `role:backend`, `type:feat`, `area:api`, `priority:p1` |
+| Backend | `fix(api): 입력 부족/민감 주제/API 실패 응답 처리` | `role:backend`, `type:fix`, `area:api`, `priority:p1` |
+| Backend | `chore(infra): 로컬 실행 스크립트 또는 Docker Compose 정리` | `role:backend`, `type:chore`, `area:infra`, `priority:p1` |
+| Frontend | `feat(frontend): 고민 입력 UI 구현` | `role:frontend`, `type:feat`, `area:frontend`, `priority:p0` |
+| Frontend | `feat(frontend): Agent별 토론 메시지 렌더링` | `role:frontend`, `type:feat`, `area:frontend`, `priority:p0` |
+| Frontend | `feat(frontend): 최종 결론 카드 구현` | `role:frontend`, `type:feat`, `area:frontend`, `priority:p0` |
+| Frontend | `feat(frontend): API 연동 및 로딩/에러 상태 처리` | `role:frontend`, `type:feat`, `area:frontend`, `priority:p0` |
+
+이슈를 한 번에 만들 때는 label 동기화 후 아래 스크립트를 실행합니다.
+
+```bash
+bash scripts/create-issues.sh
+```
+
+테스트 및 검증 항목은 별도 Issue로 과도하게 분리하지 않고, 각 구현 Issue의 Acceptance Criteria에 포함합니다.
+
+### 11-4. 커밋 규칙
 
 커밋 메시지는 다음 형식을 사용합니다.
 
@@ -282,7 +361,7 @@ refactor(prompt): Debater 공통 가드레일을 template로 분리
 chore(infra): docker-compose에 .env 마운트 추가
 ```
 
-### 11-4. PR 템플릿
+### 11-5. PR 템플릿
 
 ```markdown
 ## 무엇을 변경했는가
@@ -294,7 +373,7 @@ chore(infra): docker-compose에 .env 마운트 추가
 ## 아직 남아 있는 이슈
 ```
 
-### 11-5. 커뮤니케이션 규칙
+### 11-6. 커뮤니케이션 규칙
 
 - 작업 시작 전: 오늘 할 일을 짧게 공유합니다.
 - 작업 중 막힘: 현재 상태, 시도한 방법, 필요한 도움을 포함해 공유합니다.
