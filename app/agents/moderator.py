@@ -22,7 +22,6 @@ class ModeratorOutput(BaseModel):
     needs_clarification: bool
     clarification_questions: list[str] = Field(default_factory=list, max_length=2)
     safety_status: str = "safe"
-    debate_ready: bool
 
 
 SAFETY_KEYWORDS = (
@@ -49,7 +48,6 @@ def _fallback_moderation(query: str) -> ModeratorOutput:
             needs_clarification=False,
             clarification_questions=[],
             safety_status="unsafe",
-            debate_ready=False,
         )
 
     if len(stripped) < 12:
@@ -58,7 +56,6 @@ def _fallback_moderation(query: str) -> ModeratorOutput:
             needs_clarification=True,
             clarification_questions=["어떤 선택지 사이에서 고민하고 있는지 알려줄 수 있나요?"],
             safety_status="safe",
-            debate_ready=False,
         )
 
     return ModeratorOutput(
@@ -72,7 +69,6 @@ def _fallback_moderation(query: str) -> ModeratorOutput:
             "결정할 때 가장 중요하게 보는 기준은 무엇인가요?",
         ],
         safety_status="safe",
-        debate_ready=False,
     )
 
 
