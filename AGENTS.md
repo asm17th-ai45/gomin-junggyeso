@@ -361,6 +361,25 @@ PR 규칙:
 - 막힌 작업은 Draft PR로 공유
 - PR 제목과 본문만 봐도 작업 맥락을 알 수 있게 작성
 
+### 11-4. GitHub Issue Label
+
+모든 Issue에는 다음 label을 각각 1개 이상 부여합니다.
+
+- 역할: `role:pm`, `role:agent-lead`, `role:agent-sub`, `role:backend`, `role:frontend`
+- 작업 유형: `type:docs`, `type:feat`, `type:fix`, `type:chore`
+- 영역: `area:agent`, `area:prompt`, `area:graph`, `area:api`, `area:frontend`, `area:infra`, `area:docs`
+- 우선순위: `priority:p0`, `priority:p1`, `priority:p2`
+
+우선순위 기준:
+
+- `priority:p0`: MVP 동작을 막는 핵심 필수 작업
+- `priority:p1`: MVP 데모 품질과 안정성에 필요한 주요 작업
+- `priority:p2`: 구현 후 정리/문서화/후속 보강 작업
+
+Label은 `scripts/setup-labels.sh`로 동기화하고, 권장 MVP Issue는 `scripts/create-issues.sh`로 생성합니다.
+
+테스트 및 검증 항목은 별도 Issue로 과도하게 분리하지 않고, 각 구현 Issue의 Acceptance Criteria에 포함합니다.
+
 ## 12. 코치/리뷰어에게 질문하는 방식
 
 질문에는 반드시 다음 3가지를 포함합니다.
