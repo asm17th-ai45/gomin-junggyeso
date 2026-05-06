@@ -8,9 +8,10 @@ from app.graph import create_graph
 
 router = APIRouter()
 graph = create_graph()
+DEFAULT_MAX_ROUNDS = 2
 
 
-def build_initial_state(message: str) -> dict:
+def build_initial_state(message: str, max_rounds: int = DEFAULT_MAX_ROUNDS) -> dict:
     """사용자 메시지로부터 그래프 초기 상태를 생성한다."""
     return {
         "messages": [HumanMessage(content=message)],
@@ -18,7 +19,7 @@ def build_initial_state(message: str) -> dict:
         "normalized_problem": {},
         "debate_log": [],
         "round": 1,
-        "max_rounds": 2,
+        "max_rounds": max_rounds,
         "final_decision": {},
         "safety_status": "safe",
         "needs_clarification": False,
@@ -41,7 +42,7 @@ def build_chat_response(thread_id: str | None, result: dict) -> ChatResponse:
 
 @router.post("/chat/sync", response_model=ChatResponse)
 async def chat_sync(request: ChatRequest):
-    """동기 방식으로 전체 응답을 한 번에 반환한다."""
+    """DebateGraph를 끝까지 실행하고 전체 토론 결과를 한 번에 반환한다."""
     result = await graph.ainvoke(build_initial_state(request.message))
     return build_chat_response(request.thread_id, result)
 
