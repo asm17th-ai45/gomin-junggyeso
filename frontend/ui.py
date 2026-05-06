@@ -1,3 +1,4 @@
+import html
 import re
 import uuid
 import streamlit as st
@@ -69,15 +70,15 @@ def icon(name: str, size: int = 18) -> str:
 
 # ── 렌더링 ────────────────────────────────────────────────────────────────────
 
-def render_progress(debate_log: list):
-    # round 0=고민분석, 1=1라운드, 2=2라운드, judge=결론도출(step 3)
+def render_progress(result: dict):
     steps = ["고민 분석", "1라운드", "2라운드", "결론 도출"]
     completed = set()
-    for turn in debate_log:
-        r = turn["round"]
-        completed.add(r)
-        if turn["agent"] == "judge":
-            completed.add(3)
+    if result.get("normalized_problem"):
+        completed.add(0)
+    for turn in result.get("debate_log", []):
+        completed.add(turn["round"])
+    if result.get("final_decision"):
+        completed.add(3)
 
     cols = st.columns(4)
     for i, (col, label) in enumerate(zip(cols, steps)):
@@ -109,8 +110,9 @@ def render_round_divider(label: str):
 
 def message_bubble(agent_key: str, content: str) -> str:
     a = AGENTS.get(agent_key, {"name": agent_key, "initial": "?", "color": "#888", "bg": "rgba(136,136,136,0.12)"})
-    html_content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content)
-    html_content = html_content.replace('\n', '<br>')
+    safe = html.escape(content)
+    safe = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', safe)
+    safe = safe.replace('\n', '<br>')
     return (
         f'<div style="display:flex;gap:14px;margin-bottom:16px">'
         f'<div style="width:32px;height:32px;border-radius:50%;background:{a["bg"]};border:1.5px solid {a["color"]};'
@@ -119,9 +121,25 @@ def message_bubble(agent_key: str, content: str) -> str:
         f'<div style="flex:1;min-width:0">'
         f'<div style="font-size:13px;font-weight:600;color:{a["color"]};margin-bottom:5px;letter-spacing:0.2px">{a["name"]}</div>'
         f'<div style="border:1px solid {a["color"]}28;border-radius:2px 10px 10px 10px;'
-        f'padding:11px 15px;font-size:13.5px;line-height:1.8;word-break:keep-all">{html_content}</div>'
+        f'padding:11px 15px;font-size:13.5px;line-height:1.8;word-break:keep-all">{safe}</div>'
         f'</div></div>'
     )
+
+
+def render_normalized_problem(problem: dict):
+    lines = []
+    if summary := problem.get("summary"):
+        lines.append(summary)
+    if options := problem.get("options"):
+        lines.append("\n**선택지**")
+        lines.extend(f"- {o}" for o in options)
+    if criteria := problem.get("criteria"):
+        lines.append("\n**판단 기준**")
+        lines.extend(f"- {c}" for c in criteria)
+    if lines:
+        render_round_divider("고민 분석")
+        st.markdown(message_bubble("moderator", "\n".join(lines)), unsafe_allow_html=True)
+
 
 
 def render_debate_log(debate_log: list):
@@ -130,8 +148,7 @@ def render_debate_log(debate_log: list):
         r = turn["round"]
         if r != current_round:
             current_round = r
-            label = "고민 분석" if r == 0 else f"Round {r}"
-            render_round_divider(label)
+            render_round_divider(f"Round {r}")
         content = re.sub(r'^\*\*[^*]+(?:라운드|분석)[^*]*\*\*\s*', '', turn["content"].strip())
         st.markdown(message_bubble(turn["agent"], content), unsafe_allow_html=True)
 
@@ -197,9 +214,9 @@ def main():
     # ── 오른쪽 ────────────────────────────────────────────────────────────────
     with right:
         has_result = st.session_state.result is not None
+        result = st.session_state.result or {}
 
-        debate_log = st.session_state.result.get("debate_log", []) if has_result else []
-        render_progress(debate_log)
+        render_progress(result)
         st.divider()
 
         if start:
@@ -208,8 +225,8 @@ def main():
             else:
                 with st.spinner("AI들이 토론 중입니다..."):
                     try:
-                        result = call_backend_sync(user_input.strip(), st.session_state.thread_id)
-                        st.session_state.result = result
+                        res = call_backend_sync(user_input.strip(), st.session_state.thread_id)
+                        st.session_state.result = res
                         st.session_state.error = None
                     except TimeoutError:
                         st.session_state.error = "요청 시간이 초과되었습니다. 다시 시도해 주세요."
@@ -224,7 +241,17 @@ def main():
         elif not has_result:
             st.info("고민을 입력하고 토론을 시작하면 AI 에이전트들의 토론이 여기에 표시됩니다.")
         else:
-            render_debate_log(st.session_state.result.get("debate_log", []))
+            if needs_clarification := result.get("needs_clarification"):
+                st.warning("고민을 좀 더 구체적으로 입력해 주세요.")
+                for q in result.get("clarification_questions", []):
+                    st.markdown(f"- {q}")
+            elif result.get("safety_status") == "unsafe":
+                st.error("해당 고민은 안전상의 이유로 토론을 진행할 수 없습니다.")
+            else:
+                if problem := result.get("normalized_problem"):
+                    render_normalized_problem(problem)
+                if debate_log := result.get("debate_log"):
+                    render_debate_log(debate_log)
 
 
 if __name__ == "__main__":
