@@ -1,9 +1,9 @@
 [project]
-name = "medical-qa-agent"
+name = "gomin-junggyeso"
 version = "0.1.0"
-description = "Medical QA Agent - RAG 기반 의료 질의응답 시스템"
+description = "고민중계소 - 멀티 에이전트 의사결정 지원 서비스"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
