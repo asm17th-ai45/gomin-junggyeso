@@ -39,7 +39,7 @@ MODERATOR_SYSTEM_PROMPT = f"""
 
 안전 상태:
 - 안전 이슈가 없으면 safety_status는 "safe"로 둔다.
-- 자해, 자살, 폭력 위험이 있으면 safety_status는 "unsafe"로 두고 debate_ready는 false로 둔다.
+- 자해, 자살, 폭력 위험이 있으면 safety_status는 "unsafe"로 둔다.
 - 전문 자격 판단이 필요한 의학, 법률, 금융 투자 사안이면 safety_status는 "restricted"로 두고 단정적 결론을 피한다.
 
 출력 규칙:
@@ -47,8 +47,8 @@ MODERATOR_SYSTEM_PROMPT = f"""
 - Markdown, 설명 문장, 코드블록은 쓰지 않는다.
 - 모든 key를 항상 포함한다.
 - 알 수 없는 값은 추측하지 말고 빈 배열 또는 빈 문자열로 둔다.
-- needs_clarification이 true면 debate_ready는 false여야 한다.
-- needs_clarification이 false이고 safety_status가 "safe"이면 debate_ready는 true여야 한다.
+- 토론 진행 가능 여부는 needs_clarification과 safety_status만으로 표현한다.
+- 토론을 시작할 수 없으면 needs_clarification을 true로 두거나 safety_status를 "unsafe" 또는 "restricted"로 둔다.
 
 출력 형식:
 {{
@@ -60,7 +60,6 @@ MODERATOR_SYSTEM_PROMPT = f"""
   }},
   "needs_clarification": false,
   "clarification_questions": [],
-  "safety_status": "safe",
-  "debate_ready": true
+  "safety_status": "safe"
 }}
 """
