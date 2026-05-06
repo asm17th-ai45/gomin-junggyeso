@@ -7,9 +7,20 @@ from pydantic import BaseModel, Field
 from typing_extensions import NotRequired, Required, TypedDict
 
 
+DebateAgent = Literal["realist", "idealist", "risk_averse", "moderator"]
+SafetyStatus = Literal["safe", "restricted", "unsafe"]
+
+
+class NormalizedProblem(BaseModel):
+    summary: str = ""
+    options: list[str] = Field(default_factory=list)
+    background: list[str] = Field(default_factory=list)
+    criteria: list[str] = Field(default_factory=list)
+
+
 class DebateTurn(BaseModel):
     round: int
-    agent: Literal["realist", "idealist", "risk_averse", "moderator"]
+    agent: DebateAgent
     stance: str
     content: str
     target: str | None = None
@@ -53,14 +64,17 @@ class QueryAnalysis(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
-    thread_id: str = Field(default_factory=lambda: str(uuid4()))
+    thread_id: str | None = Field(default_factory=lambda: str(uuid4()))
 
 
 class ChatResponse(BaseModel):
-    answer: str
-    domain: str = ""
-    sources: list[str] = Field(default_factory=list)
-    disclaimer: str = ""
+    thread_id: str | None = None
+    normalized_problem: NormalizedProblem = Field(default_factory=NormalizedProblem)
+    debate_log: list[DebateTurn] = Field(default_factory=list)
+    final_decision: FinalDecision | None = None
+    needs_clarification: bool = False
+    clarification_questions: list[str] = Field(default_factory=list)
+    safety_status: SafetyStatus = "safe"
 
 
 class StreamEvent(BaseModel):
