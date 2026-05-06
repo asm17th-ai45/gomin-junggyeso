@@ -9,6 +9,10 @@ from app.graph import create_graph
 router = APIRouter()
 graph = create_graph()
 DEFAULT_MAX_ROUNDS = 2
+DEFAULT_CLARIFICATION_QUESTIONS = [
+    "지금 고민 중인 선택지를 각각 알려줄 수 있나요?",
+    "결정할 때 가장 중요하게 보는 기준은 무엇인가요?",
+]
 
 
 def build_initial_state(message: str, max_rounds: int = DEFAULT_MAX_ROUNDS) -> dict:
@@ -29,13 +33,22 @@ def build_initial_state(message: str, max_rounds: int = DEFAULT_MAX_ROUNDS) -> d
 
 def build_chat_response(thread_id: str | None, result: dict) -> ChatResponse:
     """DebateGraph 결과를 프론트엔드용 Chat 응답 스키마로 변환한다."""
+    normalized_problem = result.get("normalized_problem") or {}
+    if not normalized_problem.get("summary") and result.get("query"):
+        normalized_problem = {**normalized_problem, "summary": result["query"]}
+
+    needs_clarification = result.get("needs_clarification", False)
+    clarification_questions = result.get("clarification_questions") or []
+    if needs_clarification and not clarification_questions:
+        clarification_questions = DEFAULT_CLARIFICATION_QUESTIONS
+
     return ChatResponse(
         thread_id=thread_id,
-        normalized_problem=result.get("normalized_problem") or {},
+        normalized_problem=normalized_problem,
         debate_log=result.get("debate_log") or [],
         final_decision=result.get("final_decision") or None,
-        needs_clarification=result.get("needs_clarification", False),
-        clarification_questions=result.get("clarification_questions") or [],
+        needs_clarification=needs_clarification,
+        clarification_questions=clarification_questions,
         safety_status=result.get("safety_status", "safe"),
     )
 
