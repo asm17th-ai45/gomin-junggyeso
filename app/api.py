@@ -28,6 +28,16 @@ API_FAILURE_DECISION = {
     "risks": ["현재 응답에는 실제 Agent 토론 결과가 포함되어 있지 않습니다."],
     "next_action": "잠시 후 같은 고민으로 다시 토론을 시작해 주세요.",
 }
+RESTRICTED_DECISION = {
+    "recommendation": "전문 자격이 필요한 사안은 단정적 결론 대신 정보를 정리하고 전문가와 상담하세요.",
+    "reasons": [
+        "의학, 법률, 금융 투자 판단은 개인 상황과 최신 기준에 따라 결과가 크게 달라질 수 있습니다.",
+        "AI 토론만으로 확정적 결정을 내리면 중요한 위험을 놓칠 수 있습니다.",
+        "현재 단계에서는 선택지를 정리하고 검증할 질문을 만드는 것이 더 안전합니다.",
+    ],
+    "risks": ["전문가 확인 없이 실행하면 건강, 법적 책임, 재정 손실이 발생할 수 있습니다."],
+    "next_action": "현재 상황과 선택지를 정리한 뒤 관련 전문가에게 확인할 질문 3가지를 적어보세요.",
+}
 
 
 def build_initial_state(message: str, max_rounds: int = DEFAULT_MAX_ROUNDS) -> dict:
@@ -57,14 +67,19 @@ def build_chat_response(thread_id: str | None, result: dict) -> ChatResponse:
     if needs_clarification and not clarification_questions:
         clarification_questions = DEFAULT_CLARIFICATION_QUESTIONS
 
+    safety_status = result.get("safety_status", "safe")
+    final_decision = result.get("final_decision") or None
+    if safety_status == "restricted" and final_decision is None:
+        final_decision = RESTRICTED_DECISION
+
     return ChatResponse(
         thread_id=thread_id,
         normalized_problem=normalized_problem,
         debate_log=result.get("debate_log") or [],
-        final_decision=result.get("final_decision") or None,
+        final_decision=final_decision,
         needs_clarification=needs_clarification,
         clarification_questions=clarification_questions,
-        safety_status=result.get("safety_status", "safe"),
+        safety_status=safety_status,
     )
 
 
