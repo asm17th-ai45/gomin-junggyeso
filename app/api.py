@@ -1,4 +1,7 @@
+import asyncio
 import json
+import logging
+
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
@@ -6,13 +9,25 @@ from langchain_core.messages import HumanMessage
 from app.schemas import ChatRequest, ChatResponse, StreamEvent
 from app.graph import create_graph
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 graph = create_graph()
 DEFAULT_MAX_ROUNDS = 2
+DEFAULT_GRAPH_TIMEOUT_SECONDS = 90
 DEFAULT_CLARIFICATION_QUESTIONS = [
     "지금 고민 중인 선택지를 각각 알려줄 수 있나요?",
     "결정할 때 가장 중요하게 보는 기준은 무엇인가요?",
 ]
+API_FAILURE_DECISION = {
+    "recommendation": "일시적인 오류로 토론을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    "reasons": [
+        "AI 토론 그래프 실행 중 문제가 발생했습니다.",
+        "불완전한 토론 결과를 결론처럼 제공하지 않기 위해 안전 응답으로 전환했습니다.",
+        "같은 요청을 다시 보내면 정상 응답을 받을 수 있습니다.",
+    ],
+    "risks": ["현재 응답에는 실제 Agent 토론 결과가 포함되어 있지 않습니다."],
+    "next_action": "잠시 후 같은 고민으로 다시 토론을 시작해 주세요.",
+}
 
 
 def build_initial_state(message: str, max_rounds: int = DEFAULT_MAX_ROUNDS) -> dict:
@@ -53,10 +68,37 @@ def build_chat_response(thread_id: str | None, result: dict) -> ChatResponse:
     )
 
 
+def build_api_failure_response(thread_id: str | None, message: str) -> ChatResponse:
+    """그래프 실행 실패 시 스택트레이스 대신 같은 응답 스키마로 반환한다."""
+    return build_chat_response(
+        thread_id,
+        {
+            "query": message,
+            "normalized_problem": {"summary": message},
+            "debate_log": [],
+            "final_decision": API_FAILURE_DECISION,
+            "needs_clarification": False,
+            "clarification_questions": [],
+            "safety_status": "safe",
+        },
+    )
+
+
 @router.post("/chat/sync", response_model=ChatResponse)
 async def chat_sync(request: ChatRequest):
     """DebateGraph를 끝까지 실행하고 전체 토론 결과를 한 번에 반환한다."""
-    result = await graph.ainvoke(build_initial_state(request.message))
+    try:
+        result = await asyncio.wait_for(
+            graph.ainvoke(build_initial_state(request.message)),
+            timeout=DEFAULT_GRAPH_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("DebateGraph timed out for thread_id=%s", request.thread_id)
+        return build_api_failure_response(request.thread_id, request.message)
+    except Exception as exc:
+        logger.exception("DebateGraph failed for thread_id=%s: %s", request.thread_id, exc)
+        return build_api_failure_response(request.thread_id, request.message)
+
     return build_chat_response(request.thread_id, result)
 
 
