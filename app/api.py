@@ -122,6 +122,61 @@ async def run_debate_graph(request: ChatRequest) -> tuple[ChatResponse, bool]:
     return build_chat_response(request.thread_id, result), False
 
 
+def build_stream_events(response: ChatResponse, failed: bool = False) -> list[str]:
+    """ChatResponse를 프론트엔드 순차 렌더링용 SSE 이벤트 목록으로 변환한다."""
+    thread_id = response.thread_id
+    events = []
+
+    if failed:
+        events.append(
+            format_sse(
+                "error",
+                {
+                    "thread_id": thread_id,
+                    "final_decision": response.final_decision.model_dump()
+                    if response.final_decision
+                    else None,
+                    "safety_status": response.safety_status,
+                },
+            )
+        )
+        events.append(format_sse("done", {"thread_id": thread_id}))
+        return events
+
+    events.append(
+        format_sse(
+            "moderator",
+            {
+                "thread_id": thread_id,
+                "normalized_problem": response.normalized_problem.model_dump(),
+                "needs_clarification": response.needs_clarification,
+                "clarification_questions": response.clarification_questions,
+                "safety_status": response.safety_status,
+            },
+        )
+    )
+
+    for turn in response.debate_log:
+        payload = turn.model_dump()
+        payload["thread_id"] = thread_id
+        events.append(format_sse("debater", payload))
+
+    if response.final_decision is not None:
+        events.append(
+            format_sse(
+                "judge",
+                {
+                    "thread_id": thread_id,
+                    "final_decision": response.final_decision.model_dump(),
+                    "safety_status": response.safety_status,
+                },
+            )
+        )
+
+    events.append(format_sse("done", {"thread_id": thread_id}))
+    return events
+
+
 @router.post("/chat/sync", response_model=ChatResponse)
 async def chat_sync(request: ChatRequest):
     """DebateGraph를 끝까지 실행하고 전체 토론 결과를 한 번에 반환한다."""
@@ -131,25 +186,14 @@ async def chat_sync(request: ChatRequest):
 
 @router.post("/chat")
 async def chat_stream(request: ChatRequest):
-    """SSE 스트리밍으로 각 노드의 처리 과정을 실시간 전송한다."""
+    """SSE 이벤트로 moderator, debater, judge, done 순서의 결과를 전송한다."""
     async def gen():
-        async for event in graph.astream_events(
-            build_initial_state(request.message), version="v2"
-        ):
-            kind = event.get("event", "")
-            if kind == "on_chain_end" and event.get("name") in ("analyze", "retrieve", "respond"):
-                node_name = event["name"]
-                node_output = event.get("data", {}).get("output", {})
-                sse = StreamEvent(event="node", node=node_name, data=json.dumps(node_output, ensure_ascii=False, default=str))
-                yield f"data: {sse.model_dump_json()}\n\n"
+        response, failed = await run_debate_graph(request)
+        for event in build_stream_events(response, failed):
+            yield event
 
-        # 최종 결과
-        result = await graph.ainvoke(build_initial_state(request.message))
-        response = build_chat_response(request.thread_id, result)
-        done = StreamEvent(
-            event="done",
-            data=response.model_dump_json(),
-        )
-        yield f"data: {done.model_dump_json()}\n\n"
-
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
