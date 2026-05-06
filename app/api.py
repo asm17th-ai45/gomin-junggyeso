@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 
-from app.schemas import ChatRequest, ChatResponse, StreamEvent
+from app.schemas import ChatRequest, ChatResponse
 from app.graph import create_graph
 
 logger = logging.getLogger(__name__)
@@ -99,9 +99,14 @@ def build_api_failure_response(thread_id: str | None, message: str) -> ChatRespo
     )
 
 
-@router.post("/chat/sync", response_model=ChatResponse)
-async def chat_sync(request: ChatRequest):
-    """DebateGraph를 끝까지 실행하고 전체 토론 결과를 한 번에 반환한다."""
+def format_sse(event: str, data: dict) -> str:
+    """프론트엔드 EventSource/stream parser가 읽을 수 있는 SSE 문자열을 만든다."""
+    payload = json.dumps(data, ensure_ascii=False, default=str)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+async def run_debate_graph(request: ChatRequest) -> tuple[ChatResponse, bool]:
+    """DebateGraph를 실행하고 실패 여부와 함께 ChatResponse를 반환한다."""
     try:
         result = await asyncio.wait_for(
             graph.ainvoke(build_initial_state(request.message)),
@@ -109,12 +114,19 @@ async def chat_sync(request: ChatRequest):
         )
     except asyncio.TimeoutError:
         logger.warning("DebateGraph timed out for thread_id=%s", request.thread_id)
-        return build_api_failure_response(request.thread_id, request.message)
+        return build_api_failure_response(request.thread_id, request.message), True
     except Exception as exc:
         logger.exception("DebateGraph failed for thread_id=%s: %s", request.thread_id, exc)
-        return build_api_failure_response(request.thread_id, request.message)
+        return build_api_failure_response(request.thread_id, request.message), True
 
-    return build_chat_response(request.thread_id, result)
+    return build_chat_response(request.thread_id, result), False
+
+
+@router.post("/chat/sync", response_model=ChatResponse)
+async def chat_sync(request: ChatRequest):
+    """DebateGraph를 끝까지 실행하고 전체 토론 결과를 한 번에 반환한다."""
+    response, _ = await run_debate_graph(request)
+    return response
 
 
 @router.post("/chat")
