@@ -3,7 +3,7 @@ from uuid import uuid4
 from typing import Annotated, Literal
 
 from langchain_core.messages import BaseMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing_extensions import NotRequired, Required, TypedDict
 
 
@@ -31,6 +31,13 @@ class FinalDecision(BaseModel):
     reasons: list[str] = Field(min_length=3, max_length=3)
     risks: list[str] = Field(min_length=1)
     next_action: str | None = None
+
+    @field_validator("recommendation")
+    @classmethod
+    def recommendation_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("recommendation must not be blank")
+        return value
 
 
 class AgentState(TypedDict, total=False):
