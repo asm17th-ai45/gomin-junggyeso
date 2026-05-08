@@ -85,10 +85,9 @@ def render_progress(result: dict):
             ic = icon("radio_button_unchecked", 16)
             color = "#bbb"
             weight = "400"
-        col.markdown(
+        col.html(
             f'<div style="text-align:center;color:{color};font-size:12px;font-weight:{weight}">'
-            f'{ic}&nbsp;{label}</div>',
-            unsafe_allow_html=True,
+            f'{ic}&nbsp;{label}</div>'
         )
 
 
@@ -132,8 +131,7 @@ def render_normalized_problem(problem: dict):
         lines.extend(f"- {c}" for c in criteria)
     if lines:
         render_round_divider("고민 분석")
-        st.markdown(message_bubble("moderator", "\n".join(lines)), unsafe_allow_html=True)
-
+        st.html(message_bubble("moderator", "\n".join(lines)))
 
 
 def render_debate_log(debate_log: list):
@@ -144,7 +142,7 @@ def render_debate_log(debate_log: list):
             current_round = r
             render_round_divider(f"Round {r}")
         content = re.sub(r'^\*\*[^*]+(?:라운드|분석)[^*]*\*\*\s*', '', turn["content"].strip())
-        st.markdown(message_bubble(turn["agent"], content), unsafe_allow_html=True)
+        st.html(message_bubble(turn["agent"], content))
 
 
 def _list_items(items: list) -> str:
@@ -249,7 +247,7 @@ def main():
                     f'<div style="font-size:13px;color:#999;line-height:1.4">{a["desc"]}</div>'
                     f'</div></div>'
                 )
-            st.markdown(rows, unsafe_allow_html=True)
+            st.html(rows)
 
         if st.session_state.result is not None:
             if st.button("새 대화 시작", use_container_width=True):
