@@ -1,34 +1,7 @@
 from langgraph.graph import END, START, StateGraph
 
-from app.agents import moderate_problem, synthesize_decision
+from app.agents import moderate_problem, safety_check, synthesize_decision
 from app.schemas import AgentState, DebateTurn
-
-
-SAFETY_KEYWORDS = (
-    "자살",
-    "죽고 싶",
-    "죽을래",
-    "자해",
-    "해치고 싶",
-    "죽이고 싶",
-    "폭력",
-)
-
-
-def safety_check(state: AgentState) -> dict:
-    query = state["query"]
-    safety_status = "unsafe" if any(keyword in query for keyword in SAFETY_KEYWORDS) else "safe"
-
-    return {
-        "normalized_problem": state.get("normalized_problem", {}),
-        "debate_log": state.get("debate_log", []),
-        "round": state.get("round", 1),
-        "max_rounds": state.get("max_rounds", 2),
-        "final_decision": state.get("final_decision", {}),
-        "safety_status": safety_status,
-        "needs_clarification": state.get("needs_clarification", False),
-        "clarification_questions": state.get("clarification_questions", []),
-    }
 
 
 def route_after_safety(state: AgentState) -> str:

@@ -3,6 +3,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from app.agents.safety import has_safety_risk
 from app.core.llm import get_llm
 from app.prompts import MODERATOR_SYSTEM_PROMPT
 from app.schemas import AgentState, NormalizedProblem
@@ -17,25 +18,10 @@ class ModeratorOutput(BaseModel):
     safety_status: str = "safe"
 
 
-SAFETY_KEYWORDS = (
-    "자살",
-    "죽고 싶",
-    "죽을래",
-    "자해",
-    "해치고 싶",
-    "죽이고 싶",
-    "폭력",
-)
-
-
-def _has_safety_risk(query: str) -> bool:
-    return any(keyword in query for keyword in SAFETY_KEYWORDS)
-
-
 def _fallback_moderation(query: str) -> ModeratorOutput:
     stripped = query.strip()
 
-    if _has_safety_risk(stripped):
+    if has_safety_risk(stripped):
         return ModeratorOutput(
             normalized_problem=NormalizedProblem(summary=stripped),
             needs_clarification=False,
@@ -69,7 +55,7 @@ def moderate_problem(state: AgentState) -> dict:
     """Normalize the user's concern and decide whether debate can start."""
     query = state["query"]
 
-    if _has_safety_risk(query):
+    if has_safety_risk(query):
         output = _fallback_moderation(query)
     else:
         try:
