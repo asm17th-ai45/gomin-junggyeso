@@ -1,12 +1,21 @@
 import os
-from mock import MOCK_SCENARIO_1, MOCK_SCENARIO_2
+import httpx
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8001")
 SYNC_ENDPOINT = f"{BACKEND_URL}/api/v1/chat/sync"
+TIMEOUT = 90.0
 
 
 def call_backend_sync(message: str, thread_id: str) -> dict:
-    """백엔드 호출. 현재는 mock 데이터 반환"""
-    if "휴학" in message or "인턴" in message:
-        return MOCK_SCENARIO_2
-    return MOCK_SCENARIO_1
+    try:
+        res = httpx.post(
+            SYNC_ENDPOINT,
+            json={"message": message, "thread_id": thread_id},
+            timeout=TIMEOUT,
+        )
+        res.raise_for_status()
+        return res.json()
+    except httpx.TimeoutException:
+        raise TimeoutError
+    except httpx.ConnectError:
+        raise ConnectionError
