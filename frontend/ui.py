@@ -1,6 +1,7 @@
 import html
 import re
 import uuid
+from pathlib import Path
 import streamlit as st
 from api import call_backend_sync, BACKEND_URL
 
@@ -53,16 +54,10 @@ def new_conversation():
     st.session_state.error = None
     st.session_state.input_text = ""
 
-MATERIAL_ICONS_CDN = """
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,300,0,0" rel="stylesheet"/>
-<style>
-  .material-symbols-outlined {
-    font-variation-settings: 'FILL' 0, 'wght' 300, 'OPSZ' 24;
-    vertical-align: middle;
-    line-height: 1;
-  }
-</style>
-"""
+_CSS = (Path(__file__).parent / "style.css").read_text()
+
+def _inject_css():
+    st.html(f"<style>{_CSS}</style>")
 
 def icon(name: str, size: int = 18) -> str:
     return f'<span class="material-symbols-outlined" style="font-size:{size}px">{name}</span>'
@@ -90,21 +85,19 @@ def render_progress(result: dict):
             ic = icon("radio_button_unchecked", 16)
             color = "#bbb"
             weight = "400"
-        col.markdown(
+        col.html(
             f'<div style="text-align:center;color:{color};font-size:12px;font-weight:{weight}">'
-            f'{ic}&nbsp;{label}</div>',
-            unsafe_allow_html=True,
+            f'{ic}&nbsp;{label}</div>'
         )
 
 
 def render_round_divider(label: str):
-    st.markdown(
+    st.html(
         f'<div style="display:flex;align-items:center;gap:10px;margin:28px 0 16px">'
         f'<div style="flex:1;height:1px;background:rgba(128,128,128,0.2)"></div>'
         f'<span style="font-size:12px;color:#999;letter-spacing:0.5px">{label}</span>'
         f'<div style="flex:1;height:1px;background:rgba(128,128,128,0.2)"></div>'
-        f'</div>',
-        unsafe_allow_html=True,
+        f'</div>'
     )
 
 
@@ -138,8 +131,7 @@ def render_normalized_problem(problem: dict):
         lines.extend(f"- {c}" for c in criteria)
     if lines:
         render_round_divider("고민 분석")
-        st.markdown(message_bubble("moderator", "\n".join(lines)), unsafe_allow_html=True)
-
+        st.html(message_bubble("moderator", "\n".join(lines)))
 
 
 def render_debate_log(debate_log: list):
@@ -150,7 +142,60 @@ def render_debate_log(debate_log: list):
             current_round = r
             render_round_divider(f"Round {r}")
         content = re.sub(r'^\*\*[^*]+(?:라운드|분석)[^*]*\*\*\s*', '', turn["content"].strip())
-        st.markdown(message_bubble(turn["agent"], content), unsafe_allow_html=True)
+        st.html(message_bubble(turn["agent"], content))
+
+
+def _list_items(items: list) -> str:
+    return "".join(
+        f'<div class="judge-list-item">'
+        f'<span class="judge-bullet">•</span>'
+        f'<span>{html.escape(item)}</span>'
+        f'</div>'
+        for item in items
+    )
+
+
+def render_final_decision(final_decision: dict):
+    J = AGENTS["judge"]
+    recommendation = html.escape(final_decision.get("recommendation", ""))
+    reasons = final_decision.get("reasons", [])
+    risks = final_decision.get("risks", [])
+    next_action = final_decision.get("next_action")
+
+    next_action_html = (
+        f'<div class="judge-next-action">'
+        f'<span class="judge-next-label">지금 할 일&nbsp;&nbsp;</span>'
+        f'<span class="judge-next-text">{html.escape(next_action)}</span>'
+        f'</div>'
+        if next_action else ""
+    )
+
+    card = f"""
+    <div class="judge-card">
+      <div class="judge-card-header">
+        <div class="judge-avatar">{J["initial"]}</div>
+        <div>
+          <div class="judge-title">{J["name"]} · 최종 결론</div>
+          <div class="judge-sub">2라운드 토론 종합 판단</div>
+        </div>
+      </div>
+      <div class="judge-recommendation">{recommendation}</div>
+      <div class="judge-grid">
+        <div class="judge-section">
+          <div class="judge-section-label">핵심 근거</div>
+          {_list_items(reasons)}
+        </div>
+        <div class="judge-section">
+          <div class="judge-section-label">감수할 리스크</div>
+          {_list_items(risks)}
+        </div>
+      </div>
+      {next_action_html}
+    </div>
+    """
+
+    render_round_divider("최종 결론")
+    st.html(card)
 
 
 # ── 메인 ──────────────────────────────────────────────────────────────────────
@@ -163,7 +208,7 @@ def main():
         menu_items={"Get Help": None, "Report a bug": None, "About": None},
     )
     init_session()
-    st.markdown(MATERIAL_ICONS_CDN, unsafe_allow_html=True)
+    _inject_css()
 
     left, right = st.columns([4, 6], gap="large")
 
@@ -202,7 +247,7 @@ def main():
                     f'<div style="font-size:13px;color:#999;line-height:1.4">{a["desc"]}</div>'
                     f'</div></div>'
                 )
-            st.markdown(rows, unsafe_allow_html=True)
+            st.html(rows)
 
         if st.session_state.result is not None:
             if st.button("새 대화 시작", use_container_width=True):
@@ -252,6 +297,8 @@ def main():
                     render_normalized_problem(problem)
                 if debate_log := result.get("debate_log"):
                     render_debate_log(debate_log)
+                if final_decision := result.get("final_decision"):
+                    render_final_decision(final_decision)
 
 
 if __name__ == "__main__":
