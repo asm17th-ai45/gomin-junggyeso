@@ -5,16 +5,9 @@ from pydantic import BaseModel, Field
 
 from app.core.llm import get_llm
 from app.prompts import MODERATOR_SYSTEM_PROMPT
-from app.schemas import AgentState
+from app.schemas import AgentState, NormalizedProblem
 
 logger = logging.getLogger(__name__)
-
-
-class NormalizedProblem(BaseModel):
-    summary: str = ""
-    options: list[str] = Field(default_factory=list)
-    background: list[str] = Field(default_factory=list)
-    criteria: list[str] = Field(default_factory=list)
 
 
 class ModeratorOutput(BaseModel):
