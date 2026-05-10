@@ -3,7 +3,7 @@ import re
 import uuid
 from pathlib import Path
 import streamlit as st
-from api import call_backend_sync, BACKEND_URL
+from api import call_backend_stream, BACKEND_URL
 
 # ── Agent 설정 ────────────────────────────────────────────────────────────────
 
@@ -101,6 +101,18 @@ def render_round_divider(label: str):
     )
 
 
+def render_phase_banner(kind: str, label: str, title: str, icon_name: str):
+    st.html(
+        f'<div class="phase-banner {kind}">'
+        f'<div class="phase-icon">{icon(icon_name, 18)}</div>'
+        f'<div class="phase-copy">'
+        f'<div class="phase-label">{html.escape(label)}</div>'
+        f'<div class="phase-title">{html.escape(title)}</div>'
+        f'</div>'
+        f'</div>'
+    )
+
+
 def message_bubble(agent_key: str, content: str) -> str:
     a = AGENTS.get(agent_key, {"name": agent_key, "initial": "?", "color": "#888", "bg": "rgba(136,136,136,0.12)"})
     safe = html.escape(content)
@@ -140,6 +152,8 @@ def render_debate_log(debate_log: list):
         r = turn["round"]
         if r != current_round:
             current_round = r
+            if r == 2:
+                render_phase_banner("round2", "ROUND SHIFT", "1라운드 의견을 바탕으로 2라운드 반박을 시작합니다", "sync_alt")
             render_round_divider(f"Round {r}")
         content = re.sub(r'^\*\*[^*]+(?:라운드|분석)[^*]*\*\*\s*', '', turn["content"].strip())
         st.html(message_bubble(turn["agent"], content))
@@ -196,6 +210,71 @@ def render_final_decision(final_decision: dict):
 
     render_round_divider("최종 결론")
     st.html(card)
+
+
+def empty_result(thread_id: str) -> dict:
+    return {
+        "thread_id": thread_id,
+        "normalized_problem": {},
+        "debate_log": [],
+        "final_decision": None,
+        "needs_clarification": False,
+        "clarification_questions": [],
+        "safety_status": "safe",
+    }
+
+
+def apply_stream_event(result: dict, event: str, payload: dict) -> dict:
+    if event == "moderator":
+        result["normalized_problem"] = payload.get("normalized_problem") or {}
+        result["needs_clarification"] = payload.get("needs_clarification", False)
+        result["clarification_questions"] = payload.get("clarification_questions") or []
+        result["safety_status"] = payload.get("safety_status", "safe")
+    elif event == "debater":
+        result["debate_log"].append(
+            {
+                "round": payload.get("round", 1),
+                "agent": payload.get("agent", ""),
+                "stance": payload.get("stance", ""),
+                "content": payload.get("content", ""),
+                "target": payload.get("target"),
+            }
+        )
+    elif event == "judge":
+        result["final_decision"] = payload.get("final_decision")
+        result["safety_status"] = payload.get("safety_status", result.get("safety_status", "safe"))
+    elif event == "error":
+        result["final_decision"] = payload.get("final_decision")
+        result["safety_status"] = payload.get("safety_status", result.get("safety_status", "safe"))
+    return result
+
+
+def render_result_body(result: dict, is_streaming: bool = False):
+    if result.get("needs_clarification"):
+        st.warning("고민을 좀 더 구체적으로 입력해 주세요.")
+        for q in result.get("clarification_questions", []):
+            st.markdown(f"- {q}")
+        return
+
+    if result.get("safety_status") == "unsafe":
+        st.error("해당 고민은 안전상의 이유로 토론을 진행할 수 없습니다.")
+        if final_decision := result.get("final_decision"):
+            render_final_decision(final_decision)
+        return
+
+    if problem := result.get("normalized_problem"):
+        render_normalized_problem(problem)
+    if debate_log := result.get("debate_log"):
+        render_debate_log(debate_log)
+    if final_decision := result.get("final_decision"):
+        render_phase_banner("judge", "JUDGE", "토론을 종합해 최종 결론을 도출했습니다", "gavel")
+        render_final_decision(final_decision)
+    elif is_streaming and result.get("normalized_problem"):
+        if len(result.get("debate_log", [])) >= 6:
+            render_phase_banner("judge", "JUDGE", "모든 발언을 종합해 최종 결론을 정리하는 중입니다", "gavel")
+            st.info("Judge가 최종 결론을 정리하는 중입니다...")
+        else:
+            st.info("다음 Agent의 발언을 기다리는 중입니다...")
 
 
 # ── 메인 ──────────────────────────────────────────────────────────────────────
@@ -261,44 +340,57 @@ def main():
         has_result = st.session_state.result is not None
         result = st.session_state.result or {}
 
-        render_progress(result)
-        st.divider()
+        progress_slot = st.empty()
+        body_slot = st.empty()
+
+        with progress_slot.container():
+            render_progress(result)
+            st.divider()
 
         if start:
             if not user_input or not user_input.strip():
                 st.warning("고민을 입력해주세요.")
             else:
-                with st.spinner("AI들이 토론 중입니다..."):
-                    try:
-                        res = call_backend_sync(user_input.strip(), st.session_state.thread_id)
-                        st.session_state.result = res
-                        st.session_state.error = None
-                    except TimeoutError:
-                        st.session_state.error = "요청 시간이 초과되었습니다. 다시 시도해 주세요."
-                    except ConnectionError:
-                        st.session_state.error = f"백엔드 서버에 연결할 수 없습니다. ({BACKEND_URL})"
-                    except Exception:
-                        st.session_state.error = "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+                live_result = empty_result(st.session_state.thread_id)
+                st.session_state.result = live_result
+                st.session_state.error = None
+
+                try:
+                    with body_slot.container():
+                        st.info("Moderator가 고민을 분석하는 중입니다...")
+
+                    for event, payload in call_backend_stream(user_input.strip(), st.session_state.thread_id):
+                        if event == "done":
+                            break
+
+                        live_result = apply_stream_event(live_result, event, payload)
+
+                        with progress_slot.container():
+                            render_progress(live_result)
+                            st.divider()
+                        with body_slot.container():
+                            render_result_body(live_result, is_streaming=True)
+
+                    st.session_state.result = live_result
+                    st.session_state.error = None
+                except TimeoutError:
+                    st.session_state.error = "요청 시간이 초과되었습니다. 다시 시도해 주세요."
+                except ConnectionError:
+                    st.session_state.error = f"백엔드 서버에 연결할 수 없습니다. ({BACKEND_URL})"
+                except Exception:
+                    st.session_state.error = "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+
                 st.rerun()
 
         if st.session_state.error:
-            st.error(st.session_state.error)
+            with body_slot.container():
+                st.error(st.session_state.error)
         elif not has_result:
-            st.info("고민을 입력하고 토론을 시작하면 AI 에이전트들의 토론이 여기에 표시됩니다.")
+            with body_slot.container():
+                st.info("고민을 입력하고 토론을 시작하면 AI 에이전트들의 토론이 여기에 표시됩니다.")
         else:
-            if needs_clarification := result.get("needs_clarification"):
-                st.warning("고민을 좀 더 구체적으로 입력해 주세요.")
-                for q in result.get("clarification_questions", []):
-                    st.markdown(f"- {q}")
-            elif result.get("safety_status") == "unsafe":
-                st.error("해당 고민은 안전상의 이유로 토론을 진행할 수 없습니다.")
-            else:
-                if problem := result.get("normalized_problem"):
-                    render_normalized_problem(problem)
-                if debate_log := result.get("debate_log"):
-                    render_debate_log(debate_log)
-                if final_decision := result.get("final_decision"):
-                    render_final_decision(final_decision)
+            with body_slot.container():
+                render_result_body(result)
 
 
 if __name__ == "__main__":

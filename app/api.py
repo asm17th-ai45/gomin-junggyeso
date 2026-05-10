@@ -14,6 +14,7 @@ router = APIRouter()
 graph = create_graph()
 DEFAULT_MAX_ROUNDS = 2
 DEFAULT_GRAPH_TIMEOUT_SECONDS = 90
+STREAM_HEARTBEAT_SECONDS = 10
 DEFAULT_CLARIFICATION_QUESTIONS = [
     "지금 고민 중인 선택지를 각각 알려줄 수 있나요?",
     "결정할 때 가장 중요하게 보는 기준은 무엇인가요?",
@@ -122,6 +123,93 @@ async def run_debate_graph(request: ChatRequest) -> tuple[ChatResponse, bool]:
     return build_chat_response(request.thread_id, result), False
 
 
+async def stream_debate_graph(request: ChatRequest):
+    """DebateGraph 노드 완료 시점마다 SSE 이벤트를 순차 전송한다."""
+    state = build_initial_state(request.message)
+    queue = asyncio.Queue()
+
+    async def produce_events():
+        try:
+            async for update in graph.astream(state, stream_mode="updates"):
+                if "moderator" in update:
+                    node_state = update["moderator"]
+                    normalized_problem = node_state.get("normalized_problem") or {}
+                    needs_clarification = node_state.get("needs_clarification", False)
+                    clarification_questions = node_state.get("clarification_questions") or []
+                    if needs_clarification and not clarification_questions:
+                        clarification_questions = DEFAULT_CLARIFICATION_QUESTIONS
+
+                    await queue.put(
+                        format_sse(
+                            "moderator",
+                            {
+                                "thread_id": request.thread_id,
+                                "normalized_problem": normalized_problem,
+                                "needs_clarification": needs_clarification,
+                                "clarification_questions": clarification_questions,
+                                "safety_status": node_state.get("safety_status", "safe"),
+                            },
+                        )
+                    )
+
+                for node_name in ("realist", "idealist", "risk_averse"):
+                    if node_name in update:
+                        debate_log = update[node_name].get("debate_log") or []
+                        if debate_log:
+                            payload = debate_log[-1]
+                            payload["thread_id"] = request.thread_id
+                            await queue.put(format_sse("debater", payload))
+
+                if "judge" in update:
+                    node_state = update["judge"]
+                    final_decision = node_state.get("final_decision")
+                    if final_decision:
+                        await queue.put(
+                            format_sse(
+                                "judge",
+                                {
+                                    "thread_id": request.thread_id,
+                                    "final_decision": final_decision,
+                                    "safety_status": node_state.get("safety_status", "safe"),
+                                },
+                            )
+                        )
+
+            await queue.put(format_sse("done", {"thread_id": request.thread_id}))
+        except Exception as exc:
+            logger.exception("DebateGraph stream failed for thread_id=%s: %s", request.thread_id, exc)
+            response = build_api_failure_response(request.thread_id, request.message)
+            await queue.put(
+                format_sse(
+                    "error",
+                    {
+                        "thread_id": request.thread_id,
+                        "final_decision": response.final_decision.model_dump()
+                        if response.final_decision
+                        else None,
+                        "safety_status": response.safety_status,
+                    },
+                )
+            )
+            await queue.put(format_sse("done", {"thread_id": request.thread_id}))
+
+    producer = asyncio.create_task(produce_events())
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=STREAM_HEARTBEAT_SECONDS)
+            except asyncio.TimeoutError:
+                yield format_sse("heartbeat", {"thread_id": request.thread_id})
+                continue
+
+            yield event
+            if event.startswith("event: done"):
+                break
+    finally:
+        if not producer.done():
+            producer.cancel()
+
+
 def build_stream_events(response: ChatResponse, failed: bool = False) -> list[str]:
     """ChatResponse를 프론트엔드 순차 렌더링용 SSE 이벤트 목록으로 변환한다."""
     thread_id = response.thread_id
@@ -187,13 +275,8 @@ async def chat_sync(request: ChatRequest):
 @router.post("/chat")
 async def chat_stream(request: ChatRequest):
     """SSE 이벤트로 moderator, debater, judge, done 순서의 결과를 전송한다."""
-    async def gen():
-        response, failed = await run_debate_graph(request)
-        for event in build_stream_events(response, failed):
-            yield event
-
     return StreamingResponse(
-        gen(),
+        stream_debate_graph(request),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
