@@ -54,6 +54,8 @@ def _build_debater_input(state: AgentState) -> str:
 
 
 def _run_debater(state: AgentState, agent: str, system_prompt: str) -> dict:
+    round_number = state.get("round", 1)
+    logger.info("Agent started node=%s round=%s", agent, round_number)
     try:
         llm = get_llm(temperature=0.7)
         structured_llm = llm.with_structured_output(DebaterOutput)
@@ -68,10 +70,17 @@ def _run_debater(state: AgentState, agent: str, system_prompt: str) -> dict:
         output = DebaterOutput(**_FALLBACKS[agent])
 
     turn = DebateTurn(
-        round=state.get("round", 1),
+        round=round_number,
         agent=agent,
         stance=output.stance,
         content=output.content,
+    )
+    logger.info(
+        "Agent completed node=%s round=%s stance_chars=%s content_chars=%s",
+        agent,
+        round_number,
+        len(output.stance),
+        len(output.content),
     )
     return {"debate_log": [*state.get("debate_log", []), turn.model_dump()]}
 

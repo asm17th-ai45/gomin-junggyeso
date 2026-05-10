@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -108,6 +109,12 @@ def format_sse(event: str, data: dict) -> str:
 
 async def run_debate_graph(request: ChatRequest) -> tuple[ChatResponse, bool]:
     """DebateGraph를 실행하고 실패 여부와 함께 ChatResponse를 반환한다."""
+    start = time.perf_counter()
+    logger.info(
+        "DebateGraph sync started thread_id=%s message_chars=%s",
+        request.thread_id,
+        len(request.message),
+    )
     try:
         result = await asyncio.wait_for(
             graph.ainvoke(build_initial_state(request.message)),
@@ -120,13 +127,30 @@ async def run_debate_graph(request: ChatRequest) -> tuple[ChatResponse, bool]:
         logger.exception("DebateGraph failed for thread_id=%s: %s", request.thread_id, exc)
         return build_api_failure_response(request.thread_id, request.message), True
 
-    return build_chat_response(request.thread_id, result), False
+    response = build_chat_response(request.thread_id, result)
+    duration_ms = (time.perf_counter() - start) * 1000
+    logger.info(
+        "DebateGraph sync completed thread_id=%s duration_ms=%.1f safety_status=%s clarification=%s turns=%s has_decision=%s",
+        request.thread_id,
+        duration_ms,
+        response.safety_status,
+        response.needs_clarification,
+        len(response.debate_log),
+        response.final_decision is not None,
+    )
+    return response, False
 
 
 async def stream_debate_graph(request: ChatRequest):
     """DebateGraph 노드 완료 시점마다 SSE 이벤트를 순차 전송한다."""
     state = build_initial_state(request.message)
     queue = asyncio.Queue()
+    start = time.perf_counter()
+    logger.info(
+        "DebateGraph stream started thread_id=%s message_chars=%s",
+        request.thread_id,
+        len(request.message),
+    )
 
     async def produce_events():
         try:
@@ -151,6 +175,12 @@ async def stream_debate_graph(request: ChatRequest):
                             },
                         )
                     )
+                    logger.info(
+                        "SSE event queued event=moderator thread_id=%s clarification=%s questions=%s",
+                        request.thread_id,
+                        needs_clarification,
+                        len(clarification_questions),
+                    )
 
                 for node_name in ("realist", "idealist", "risk_averse"):
                     if node_name in update:
@@ -159,6 +189,13 @@ async def stream_debate_graph(request: ChatRequest):
                             payload = debate_log[-1]
                             payload["thread_id"] = request.thread_id
                             await queue.put(format_sse("debater", payload))
+                            logger.info(
+                                "SSE event queued event=debater thread_id=%s round=%s agent=%s content_chars=%s",
+                                request.thread_id,
+                                payload.get("round"),
+                                payload.get("agent"),
+                                len(payload.get("content", "")),
+                            )
 
                 if "judge" in update:
                     node_state = update["judge"]
@@ -174,8 +211,16 @@ async def stream_debate_graph(request: ChatRequest):
                                 },
                             )
                         )
+                        logger.info(
+                            "SSE event queued event=judge thread_id=%s reasons=%s risks=%s",
+                            request.thread_id,
+                            len(final_decision.get("reasons", [])),
+                            len(final_decision.get("risks", [])),
+                        )
 
             await queue.put(format_sse("done", {"thread_id": request.thread_id}))
+            duration_ms = (time.perf_counter() - start) * 1000
+            logger.info("DebateGraph stream completed thread_id=%s duration_ms=%.1f", request.thread_id, duration_ms)
         except Exception as exc:
             logger.exception("DebateGraph stream failed for thread_id=%s: %s", request.thread_id, exc)
             response = build_api_failure_response(request.thread_id, request.message)
@@ -268,6 +313,7 @@ def build_stream_events(response: ChatResponse, failed: bool = False) -> list[st
 @router.post("/chat/sync", response_model=ChatResponse)
 async def chat_sync(request: ChatRequest):
     """DebateGraph를 끝까지 실행하고 전체 토론 결과를 한 번에 반환한다."""
+    logger.info("POST /chat/sync received thread_id=%s", request.thread_id)
     response, _ = await run_debate_graph(request)
     return response
 
@@ -275,6 +321,7 @@ async def chat_sync(request: ChatRequest):
 @router.post("/chat")
 async def chat_stream(request: ChatRequest):
     """SSE 이벤트로 moderator, debater, judge, done 순서의 결과를 전송한다."""
+    logger.info("POST /chat stream received thread_id=%s", request.thread_id)
     return StreamingResponse(
         stream_debate_graph(request),
         media_type="text/event-stream",

@@ -3,6 +3,7 @@ import re
 import uuid
 from pathlib import Path
 import streamlit as st
+import streamlit.components.v1 as components
 from api import call_backend_stream, BACKEND_URL
 
 # ── Agent 설정 ────────────────────────────────────────────────────────────────
@@ -61,6 +62,45 @@ def _inject_css():
 
 def icon(name: str, size: int = 18) -> str:
     return f'<span class="material-symbols-outlined" style="font-size:{size}px">{name}</span>'
+
+
+def auto_scroll():
+    if "_scroll_seq" not in st.session_state:
+        st.session_state._scroll_seq = 0
+    st.session_state._scroll_seq += 1
+    marker_id = f"stream-scroll-anchor-{st.session_state._scroll_seq}"
+
+    st.markdown(f'<div id="{marker_id}" style="height:1px"></div>', unsafe_allow_html=True)
+    components.html(
+        f"""
+        <script>
+        const scrollToLatest = () => {{
+          const doc = window.parent.document;
+          const marker = doc.getElementById("{marker_id}");
+          if (marker) {{
+            marker.scrollIntoView({{ behavior: "smooth", block: "end" }});
+          }}
+
+          const containers = [
+            doc.querySelector('[data-testid="stAppViewContainer"]'),
+            doc.querySelector('section.main'),
+            doc.scrollingElement,
+            doc.documentElement,
+            doc.body
+          ].filter(Boolean);
+
+          for (const el of containers) {{
+            try {{
+              el.scrollTo({{ top: el.scrollHeight, behavior: "smooth" }});
+            }} catch (error) {{}}
+          }}
+        }};
+        window.setTimeout(scrollToLatest, 80);
+        window.setTimeout(scrollToLatest, 280);
+        </script>
+        """,
+        height=1,
+    )
 
 
 # ── 렌더링 ────────────────────────────────────────────────────────────────────
@@ -269,6 +309,7 @@ def render_result_body(result: dict, is_streaming: bool = False):
     if final_decision := result.get("final_decision"):
         render_phase_banner("judge", "JUDGE", "토론을 종합해 최종 결론을 도출했습니다", "gavel")
         render_final_decision(final_decision)
+        auto_scroll()
     elif is_streaming and result.get("normalized_problem"):
         if len(result.get("debate_log", [])) >= 6:
             render_phase_banner("judge", "JUDGE", "모든 발언을 종합해 최종 결론을 정리하는 중입니다", "gavel")
@@ -370,6 +411,7 @@ def main():
                             st.divider()
                         with body_slot.container():
                             render_result_body(live_result, is_streaming=True)
+                            auto_scroll()
 
                     st.session_state.result = live_result
                     st.session_state.error = None
