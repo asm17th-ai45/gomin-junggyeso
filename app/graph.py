@@ -1,7 +1,11 @@
+import logging
+
 from langgraph.graph import END, START, StateGraph
 
 from app.agents import idealist, moderate_problem, realist, risk_averse, safety_check, synthesize_decision
 from app.schemas import AgentState
+
+logger = logging.getLogger(__name__)
 
 
 def route_after_safety(state: AgentState) -> str:
@@ -15,7 +19,15 @@ def route_after_moderator(state: AgentState) -> str:
 
 
 def round_check(state: AgentState) -> dict:
-    return {"round": state.get("round", 1) + 1}
+    current_round = state.get("round", 1)
+    next_round = current_round + 1
+    logger.info(
+        "Agent completed node=round_check current_round=%s next_round=%s max_rounds=%s",
+        current_round,
+        next_round,
+        state.get("max_rounds", 2),
+    )
+    return {"round": next_round}
 
 
 def route_after_round_check(state: AgentState) -> str:

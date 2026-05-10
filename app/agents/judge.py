@@ -56,6 +56,11 @@ def _fallback_decision(state: AgentState) -> FinalDecision:
 
 def synthesize_decision(state: AgentState) -> dict:
     """Synthesize debate turns into a structured final decision."""
+    logger.info(
+        "Agent started node=judge safety_status=%s debate_turns=%s",
+        state.get("safety_status", "safe"),
+        len(state.get("debate_log", [])),
+    )
     if state.get("safety_status") == "unsafe":
         decision = _fallback_decision(state)
     else:
@@ -72,4 +77,10 @@ def synthesize_decision(state: AgentState) -> dict:
             logger.warning("Judge structured output failed: %s", exc)
             decision = _fallback_decision(state)
 
+    logger.info(
+        "Agent completed node=judge recommendation_chars=%s reasons=%s risks=%s",
+        len(decision.recommendation),
+        len(decision.reasons),
+        len(decision.risks),
+    )
     return {"final_decision": decision.model_dump()}

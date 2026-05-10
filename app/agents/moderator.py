@@ -54,6 +54,7 @@ def _fallback_moderation(query: str) -> ModeratorOutput:
 def moderate_problem(state: AgentState) -> dict:
     """Normalize the user's concern and decide whether debate can start."""
     query = state["query"]
+    logger.info("Agent started node=moderator query_chars=%s", len(query))
 
     if has_safety_risk(query):
         output = _fallback_moderation(query)
@@ -72,6 +73,20 @@ def moderate_problem(state: AgentState) -> dict:
             output = _fallback_moderation(query)
 
     data = output.model_dump()
+    logger.info(
+        "Agent completed node=moderator safety_status=%s needs_clarification=%s questions=%s options=%s criteria=%s",
+        data["safety_status"],
+        data["needs_clarification"],
+        len(data["clarification_questions"]),
+        len(data["normalized_problem"].get("options", [])),
+        len(data["normalized_problem"].get("criteria", [])),
+    )
+    if data["needs_clarification"]:
+        logger.info(
+            "Debate paused by moderator summary_chars=%s questions=%s",
+            len(data["normalized_problem"].get("summary", "")),
+            len(data["clarification_questions"]),
+        )
     return {
         "normalized_problem": data["normalized_problem"],
         "needs_clarification": data["needs_clarification"],

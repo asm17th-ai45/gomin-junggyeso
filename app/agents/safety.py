@@ -1,4 +1,8 @@
+import logging
+
 from app.schemas import AgentState
+
+logger = logging.getLogger(__name__)
 
 SAFETY_KEYWORDS = (
     "자살",
@@ -17,4 +21,5 @@ def has_safety_risk(query: str) -> bool:
 
 def safety_check(state: AgentState) -> dict:
     safety_status = "unsafe" if has_safety_risk(state["query"]) else "safe"
+    logger.info("Agent completed node=safety_check safety_status=%s", safety_status)
     return {"safety_status": safety_status}
