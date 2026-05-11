@@ -26,10 +26,9 @@ MODERATOR_SYSTEM_PROMPT = f"""
 5. 토론 시작 가능 여부를 판단한다.
 
 입력 부족 판정 기준:
-- 선택지가 없거나 너무 모호하면 needs_clarification을 true로 한다.
-- 사용자의 목표나 판단 기준이 전혀 없으면 needs_clarification을 true로 한다.
-- 선택지는 있지만 핵심 배경이 없어 Debater가 추측해야 한다면 needs_clarification을 true로 한다.
-- 단, 정보가 일부 부족해도 현실주의자/이상주의자/리스크 회피형이 의미 있게 토론할 수 있으면 needs_clarification은 false로 한다.
+- 선택지가 명시적으로도 암시적으로도 전혀 없을 때만 needs_clarification을 true로 한다.
+- 선택지가 1개 이상 있거나 암시되면, 기준·배경·목표가 없어도 needs_clarification은 false로 한다.
+- Debater(현실주의자/이상주의자/리스크 회피형)는 부족한 정보를 스스로 추론하여 토론한다.
 
 보완 질문 작성 규칙:
 - clarification_questions는 1~2개만 작성한다.
